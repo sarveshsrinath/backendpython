@@ -40,16 +40,24 @@ async def detect_face(unique_id: str= Form(...), file: UploadFile = File(...)):
         image = np.frombuffer(image_stream, np.uint8)
         image = cv2.imdecode(image, cv2.IMREAD_GRAYSCALE)
 
+        image_dimensions = {"width": image.shape[1], "height": image.shape[0]}
+
         # Perform face detection
         faces = face_cascade.detectMultiScale(image, scaleFactor=1.1, minNeighbors=3, minSize=(30, 30))
 
+        print("No of faces :", len(faces))
+
         # Prepare the response
         if len(faces) == 0:
-            return JSONResponse(content={"unique_id": unique_id, "face_detected": False, "confidence_score": 0})
+            return JSONResponse(content={"unique_id": unique_id, "face_detected": False})
         else:
             # Assuming the first face has the highest confidence score
-            confidence_score = faces[0][-1] if len(faces[0]) == 5 else 1  # OpenCV does not provide confidence score by default
-            return JSONResponse(content={"unique_id": unique_id, "face_detected": True, "confidence_score": confidence_score})
+            #confidence_score = faces[0][-1] if len(faces[0]) == 5 else 1  # OpenCV does not provide confidence score by default
+            #return JSONResponse(content={"unique_id": unique_id, "face_detected": True, "confidence_score": confidence_score})
+            face_coordinates = []
+            for (x, y, w, h) in faces:
+                face_coordinates.append({'x': int(x), 'y': int(y), 'width': int(w), 'height': int(h)})
+            return JSONResponse(content={"unique_id": unique_id, "face_detected": True, "image_dimensions": image_dimensions,  "faces": face_coordinates})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -104,7 +112,17 @@ async def get_home():
             height: 8rem; 
             width: 12rem;
         }
+        #imageContainer {
+            float:left;
+            position: relative;
+            display: inline-block;
+        }
 
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
 
     </style>
 </head>
@@ -121,8 +139,9 @@ async def get_home():
     <div style="display: flex;justify-content: center;height: auto;">
         <p><video id="video-tag" width="320" height="180" autoplay /></p>
     </div>
-    <div style="float:left">
-        <p><img id="image-tag" width="240"> </img></p>
+    <div id="imageContainer">
+        <img id="image-tag" width="240"> </img>
+        <canvas id="overlay" width="240"></canvas>
     </div>
 </div>
 
@@ -248,6 +267,9 @@ async def get_home():
     }
     function clearPhoto() {
             imageTag.src=tempImageSrc;
+            var overlay = document.getElementById('overlay');
+            var ctx = overlay.getContext('2d');
+            ctx.clearRect(0, 0, overlay.width, overlay.height);
             
         }
     function stop(){
@@ -260,6 +282,7 @@ async def get_home():
   }
   function checkImage() {
     const input = document.getElementById('imageInput');
+
     if (input.files && input.files[0]) {
         const imageFile = input.files[0];
         const formData = new FormData();
@@ -274,7 +297,35 @@ async def get_home():
         .then(response => response.json())
         .then(data => {
             console.log(data);
-            alert('Face detection result: ' + (data.face_detected ? 'Face Detected' : 'No Face Detected') + ' with confidence score: ' + data.confidence_score);
+            alert('Face detection result: ' + (data.face_detected ? 'Face Detected' : 'No Face Detected'));
+            
+            var canvas = document.getElementById('overlay');
+            var ctx = canvas.getContext('2d');
+
+
+            console.log('Image dimensions: width -' + data.image_dimensions.width + ' height -' + data.image_dimensions.height);
+            data.faces.forEach(function (face) {
+                console.log('Canvas width:' + canvas.width + 'Canvas height:' + canvas.height + 'Face x:' + face.x + 'Face y:' + face.y);
+                console.log('Input width:' + input.files[0].width + 'Overlay width:' + overlay.width);
+                var scaleFactor = data.image_dimensions.width / overlay.width;
+                console.log('Scale Factor:' + scaleFactor);
+                var scaledX = face.x / scaleFactor;
+                var scaledY = face.y / scaleFactor;
+                var scaledWidth = face.width / scaleFactor;
+                var scaledHeight = face.height / scaleFactor;
+
+                console.log('Canvas width:' + canvas.width + 'Canvas height:' + canvas.height + 'Scaled box x:' + scaledX + 'Scaled box y:' + scaledY);
+                ctx.beginPath();
+                //ctx.rect(face.x, face.y, face.width, face.height);
+                ctx.rect(scaledX, scaledY, scaledWidth, scaledHeight);
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = 'black';
+                ctx.fillStyle = 'black';
+                ctx.stroke();
+            });
+
+            // Update the original image with the canvas content
+            //imageTag.src = canvas.toDataURL('image/png');
         })
         .catch(error => {
             console.error('Error:', error);
